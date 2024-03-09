@@ -1,0 +1,45 @@
+#!/usr/local/bin/bash
+
+DATE=`date +%Y-%m-%d`
+JAIL=$1
+if [ "$JAIL" == "" ] ; then
+        echo -n "Please enter jail name to transfer " ; read JAIL
+fi
+
+TARGETHOST="defiant.example.org"
+if [ "`/bin/hostname`" = "$TARGETHOST" ] ; then
+        TARGETHOST="intrepid.example.org"
+fi
+
+
+#if [ "`/bin/hostname`" == "defiant.example.org" ] ; then
+#       TARGETHOST="intrepid.example.org"
+#else
+#       TARGETHOST="defiant.example.org"
+#fi
+echo "Target is $TARGETHOST"
+
+# Clear old saves of the jail in the images directory...
+ls -1 /usr/iocage/images/$JAIL* > /dev/null 2>&1
+if [ "$?" -eq 0 ] ; then
+        rm /usr/iocage/images/$JAIL*
+fi
+
+iocage stop $JAIL && iocage export $JAIL
+iocage set boot=off $JAIL
+BUNDLE=$(basename $(ls -1tr /usr/iocage/images/$JAIL* | tail -1 | awk -F. '{print $1}'))
+if [ "`cat /usr/iocage/images/$BUNDLE.sha256`" = "`sha256 /usr/iocage/images/$BUNDLE.zip | awk '{ print $4 }'`" ] ; then
+        echo "Copying $BUNDLE to $TARGETHOST..."
+        scp /usr/iocage/images/$BUNDLE* $TARGETHOST:/usr/iocage/images/
+fi
+
+# Once jail bundle is transferred, disable on this host.
+ssh $TARGETHOST "/usr/local/sbin/import_jail $JAIL $BUNDLE"
+ping -c1 $(iocage list -h | grep $JAIL | awk '{ print $5 }' | awk -F/ '{ print $1 }') > /dev/null
+if [ $? -eq 0 ] ; then # host is up
+        echo "$JAIL is up on $TARGETHOST, deleting local copy."
+        # If this is successful, go in and delete the jail on the original side.
+        rm /usr/iocage/images/$BUNDLE.*
+        iocage destroy --recursive $JAIL
+        echo "$JAIL migration complete..."
+fi
