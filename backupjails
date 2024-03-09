@@ -1,0 +1,54 @@
+#!/usr/local/bin/bash
+PATH=/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/bin
+
+TODAY=$(date '+%Y-%m-%d')
+YESTERDAY=$(date -v-1d '+%Y-%m-%d')
+DAYBEFORE=$(date -v-2d '+%Y-%m-%d')
+EXITCODE="0"
+# bail if no hosts are running on this host
+if [ "`iocage list -h | awk '{ print $2 }' | wc -l`" = "0" ] ; then
+  echo "No jails running on this host." | mailx -s "No jails to export" user@example.org
+  exit
+fi 
+# Get a list of jail hosts, and determine if each is up.
+iocage list -h | awk '{ print $2 }' | while read host ; do
+hoststatus=$(iocage list -h | grep $host | awk '{ print $3 }')
+echo $hoststatus
+  if [ "$hoststatus" = "up" ] ; then
+          echo "Stopping $host..."
+          stopstart="yes"
+  fi
+  # Make the backup
+  if [ "$stopstart" = "yes" ] ; then
+          iocage stop $host 
+  fi
+  echo "Creating snapshot and moving to offsite storage"
+  iocage export $host
+  if [ "$?" != "0" ] ; then
+          EXITCODE="1"
+  fi
+  rm -f /exports/backups/jails/${host}_${TODAY}.*
+  cp /usr/iocage/images/${host}_${TODAY}.* /exports/backups/jails
+  if [ "$?" = "0" ] ; then
+          rm -f /exports/backups/jails/${host}_${YESTERDAY}.* /usr/iocage/images/*_${DAYBEFORE}*
+  else
+          EXITCODE="2"
+  fi
+  if [ "`iocage get boot $host`" = "1" ] ; then
+          echo "Starting $host..."
+          iocage start $host
+  fi
+done
+case $EXITCODE in
+        0) 
+                echo "Jails migrated to luna's backups directory" | mailx -s "Jail export complete" user@example.org
+        ;;
+        1)
+                echo "Failed to export $host for $TODAY."
+                echo "Failed to export $host for $TODAY." | mailx -s "Jail export failed" user@example.org
+        ;;
+        2)
+                echo "Failed to copy $host for $TODAY."
+                echo "Failed to copy $host for $TODAY to backup directory. Retaining copy locally." | mailx -s "Jail copy failed" user@example.org
+        ;;
+esac
