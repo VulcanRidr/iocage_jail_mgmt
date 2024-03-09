@@ -1,0 +1,13 @@
+#!/bin/sh
+
+JAIL=$1
+BUNDLE=$2
+
+iocage import $JAIL
+iocage start $JAIL
+iocage set boot=on $JAIL
+
+# Once succesful, delete the import files.
+echo "Removing import files for $BUNDLE"
+rm /usr/iocage/images/$BUNDLE.zip /usr/iocage/images/$BUNDLE.sha256
+echo "$JAIL import complete."
